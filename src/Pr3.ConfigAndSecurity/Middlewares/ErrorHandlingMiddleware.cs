@@ -29,12 +29,20 @@ public sealed class ErrorHandlingMiddleware
         }
         catch (ArgumentException ex)
         {
-            _logger.LogWarning(ex, "Ошибка входных данных. requestId={RequestId}", requestId);
+            if (_options.Mode == AppMode.Учебный)
+                _logger.LogWarning(ex, "Ошибка входных данных. requestId={RequestId}", requestId);
+            else
+                _logger.LogWarning("Ошибка входных данных. requestId={RequestId}", requestId);
+
             await WriteError(context, 400, "bad_request", ToClientMessage(ex.Message), requestId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Непредвиденная ошибка. requestId={RequestId}", requestId);
+            if (_options.Mode == AppMode.Учебный)
+                _logger.LogError(ex, "Непредвиденная ошибка. requestId={RequestId}", requestId);
+            else
+                _logger.LogError("Непредвиденная ошибка. requestId={RequestId}", requestId);
+
             await WriteError(context, 500, "internal_error", ToClientMessage("Внутренняя ошибка сервера"), requestId);
         }
     }

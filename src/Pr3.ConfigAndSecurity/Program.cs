@@ -38,6 +38,14 @@ if (errors.Count > 0)
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<IItemRepository, InMemoryItemRepository>();
 
+var isTrainingMode = options.Mode == AppMode.Учебный;
+var readLimitPerMinute = isTrainingMode
+    ? Math.Max(options.RateLimits.ReadPerMinute, options.RateLimits.ReadPerMinute * 2)
+    : options.RateLimits.ReadPerMinute;
+var writeLimitPerMinute = isTrainingMode
+    ? Math.Max(options.RateLimits.WritePerMinute, options.RateLimits.WritePerMinute * 2)
+    : options.RateLimits.WritePerMinute;
+
 // Ограничение запросов из браузера только от доверенных источников
 builder.Services.AddCors(cors =>
 {
@@ -55,7 +63,10 @@ builder.Services.AddRateLimiter(limiter =>
     limiter.OnRejected = async (context, token) =>
     {
         context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-        await context.HttpContext.Response.WriteAsync("Слишком много запросов", token);
+        var message = isTrainingMode
+            ? "Слишком много запросов. Уменьшите частоту и повторите позже."
+            : "Слишком много запросов";
+        await context.HttpContext.Response.WriteAsync(message, token);
     };
 
     limiter.AddPolicy("read", httpContext =>
@@ -65,7 +76,7 @@ builder.Services.AddRateLimiter(limiter =>
             key,
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = options.RateLimits.ReadPerMinute,
+                PermitLimit = readLimitPerMinute,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst
@@ -80,7 +91,7 @@ builder.Services.AddRateLimiter(limiter =>
             key,
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = options.RateLimits.WritePerMinute,
+                PermitLimit = writeLimitPerMinute,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst
