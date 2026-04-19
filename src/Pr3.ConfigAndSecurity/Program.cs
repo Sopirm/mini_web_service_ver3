@@ -107,23 +107,23 @@ app.UseCors("TrustedOrigins");
 app.UseRateLimiter();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
-app.MapGet("/api/items", (IItemRepository repo) =>
+app.MapGet("/api/auto-parts", (IItemRepository repo) =>
 {
     return Results.Ok(repo.GetAll());
 })
 .RequireRateLimiting("read");
 
-app.MapGet("/api/items/by-id/{id:guid}", (Guid id, IItemRepository repo) =>
+app.MapGet("/api/auto-parts/by-id/{id:guid}", (Guid id, IItemRepository repo) =>
 {
     var item = repo.GetById(id);
     if (item is null)
-        throw new ArgumentException("Элемент не найден");
+        throw new ArgumentException("Автозапчасть не найдена");
 
     return Results.Ok(item);
 })
 .RequireRateLimiting("read");
 
-app.MapPost("/api/items", (HttpContext ctx, CreateItemRequest request, IItemRepository repo) =>
+app.MapPost("/api/auto-parts", (HttpContext ctx, CreateItemRequest request, IItemRepository repo) =>
 {
     if (string.IsNullOrWhiteSpace(request.Name))
         throw new ArgumentException("Поле name не должно быть пустым");
@@ -132,10 +132,20 @@ app.MapPost("/api/items", (HttpContext ctx, CreateItemRequest request, IItemRepo
         throw new ArgumentException("Поле price не может быть отрицательным");
 
     var created = repo.Create(request.Name.Trim(), request.Price);
-    var location = $"/api/items/by-id/{created.Id}";
+    var location = $"/api/auto-parts/by-id/{created.Id}";
     ctx.Response.Headers.Location = location;
 
     return Results.Created(location, created);
+})
+.RequireRateLimiting("write");
+
+app.MapDelete("/api/auto-parts/by-id/{id:guid}", (Guid id, IItemRepository repo) =>
+{
+    var deleted = repo.Delete(id);
+    if (!deleted)
+        throw new ArgumentException("Автозапчасть не найдена");
+
+    return Results.NoContent();
 })
 .RequireRateLimiting("write");
 

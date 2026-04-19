@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -15,7 +16,7 @@ public sealed class IntegrationSecurityTests
         var factory = CreateFactory(mode: "Учебный", trustedOrigin: "http://localhost:5173", readLimit: 100, writeLimit: 100);
         var client = factory.CreateClient();
 
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/items");
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/auto-parts");
         request.Headers.TryAddWithoutValidation("Origin", "http://localhost:5173");
 
         var response = await client.SendAsync(request);
@@ -31,7 +32,7 @@ public sealed class IntegrationSecurityTests
         var factory = CreateFactory(mode: "Учебный", trustedOrigin: "http://localhost:5173", readLimit: 100, writeLimit: 100);
         var client = factory.CreateClient();
 
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/items");
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/auto-parts");
         request.Headers.TryAddWithoutValidation("Origin", "http://evil.local");
 
         var response = await client.SendAsync(request);
@@ -48,7 +49,7 @@ public sealed class IntegrationSecurityTests
 
         async Task<HttpStatusCode> Call()
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, "/api/items");
+            var request = new HttpRequestMessage(HttpMethod.Get, "/api/auto-parts");
             request.Headers.TryAddWithoutValidation("Origin", "http://localhost:5173");
             var resp = await client.SendAsync(request);
             return resp.StatusCode;
@@ -73,7 +74,7 @@ public sealed class IntegrationSecurityTests
         var factory = CreateFactory(mode: "Учебный", trustedOrigin: "http://localhost:5173", readLimit: 100, writeLimit: 100);
         var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/api/items");
+        var response = await client.GetAsync("/api/auto-parts");
 
         Assert.True(response.Headers.Contains("X-Content-Type-Options"));
         Assert.True(response.Headers.Contains("X-Frame-Options"));
@@ -86,14 +87,14 @@ public sealed class IntegrationSecurityTests
         var factory = CreateFactory(mode: "Учебный", trustedOrigin: "http://localhost:5173", readLimit: 100, writeLimit: 100);
         var client = factory.CreateClient();
 
-        var response = await client.GetAsync($"/api/items/by-id/{Guid.NewGuid()}");
+        var response = await client.GetAsync($"/api/auto-parts/by-id/{Guid.NewGuid()}");
         var body = await response.Content.ReadAsStringAsync();
         var error = JsonSerializer.Deserialize<ErrorResponse>(body);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.NotNull(error);
         Assert.Equal("bad_request", error!.Code);
-        Assert.Contains("Элемент не найден", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Автозапчасть не найдена", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -102,7 +103,7 @@ public sealed class IntegrationSecurityTests
         var factory = CreateFactory(mode: "Боевой", trustedOrigin: "http://localhost:5173", readLimit: 100, writeLimit: 100);
         var client = factory.CreateClient();
 
-        var response = await client.GetAsync($"/api/items/by-id/{Guid.NewGuid()}");
+        var response = await client.GetAsync($"/api/auto-parts/by-id/{Guid.NewGuid()}");
         var body = await response.Content.ReadAsStringAsync();
         var error = JsonSerializer.Deserialize<ErrorResponse>(body);
 
@@ -110,7 +111,7 @@ public sealed class IntegrationSecurityTests
         Assert.NotNull(error);
         Assert.Equal("bad_request", error!.Code);
         Assert.Equal("Ошибка обработки запроса", error.Message);
-        Assert.DoesNotContain("Элемент не найден", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Автозапчасть не найдена", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -119,9 +120,9 @@ public sealed class IntegrationSecurityTests
         var trainingFactory = CreateFactory(mode: "Учебный", trustedOrigin: "http://localhost:5173", readLimit: 1, writeLimit: 1);
         var trainingClient = trainingFactory.CreateClient();
 
-        var t1 = await trainingClient.GetAsync("/api/items");
-        var t2 = await trainingClient.GetAsync("/api/items");
-        var t3 = await trainingClient.GetAsync("/api/items");
+        var t1 = await trainingClient.GetAsync("/api/auto-parts");
+        var t2 = await trainingClient.GetAsync("/api/auto-parts");
+        var t3 = await trainingClient.GetAsync("/api/auto-parts");
 
         Assert.Equal(HttpStatusCode.OK, t1.StatusCode);
         Assert.Equal(HttpStatusCode.OK, t2.StatusCode);
@@ -130,11 +131,54 @@ public sealed class IntegrationSecurityTests
         var productionFactory = CreateFactory(mode: "Боевой", trustedOrigin: "http://localhost:5173", readLimit: 1, writeLimit: 1);
         var productionClient = productionFactory.CreateClient();
 
-        var p1 = await productionClient.GetAsync("/api/items");
-        var p2 = await productionClient.GetAsync("/api/items");
+        var p1 = await productionClient.GetAsync("/api/auto-parts");
+        var p2 = await productionClient.GetAsync("/api/auto-parts");
 
         Assert.Equal(HttpStatusCode.OK, p1.StatusCode);
         Assert.Equal((HttpStatusCode)429, p2.StatusCode);
+    }
+
+    [Fact]
+    public async Task Можно_создать_и_удалить_автозапчасть_через_api()
+    {
+        var factory = CreateFactory(mode: "Учебный", trustedOrigin: "http://localhost:5173", readLimit: 100, writeLimit: 100);
+        var client = factory.CreateClient();
+
+        var createRequest = new CreateItemRequest("Тормозной диск", 3490.50m);
+        var createResponse = await client.PostAsJsonAsync("/api/auto-parts", createRequest);
+        var created = await createResponse.Content.ReadFromJsonAsync<Item>();
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        Assert.NotNull(created);
+        Assert.Equal("Тормозной диск", created!.Name);
+        Assert.Equal(3490.50m, created.Price);
+        Assert.NotEqual(Guid.Empty, created.Id);
+        Assert.Equal($"/api/auto-parts/by-id/{created.Id}", createResponse.Headers.Location?.OriginalString);
+
+        var getBeforeDelete = await client.GetAsync($"/api/auto-parts/by-id/{created.Id}");
+        Assert.Equal(HttpStatusCode.OK, getBeforeDelete.StatusCode);
+
+        var deleteResponse = await client.DeleteAsync($"/api/auto-parts/by-id/{created.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        var getAfterDelete = await client.GetAsync($"/api/auto-parts/by-id/{created.Id}");
+        Assert.Equal(HttpStatusCode.BadRequest, getAfterDelete.StatusCode);
+    }
+
+    [Fact]
+    public async Task Удаление_несуществующей_детали_возвращает_ошибку()
+    {
+        var factory = CreateFactory(mode: "Учебный", trustedOrigin: "http://localhost:5173", readLimit: 100, writeLimit: 100);
+        var client = factory.CreateClient();
+
+        var response = await client.DeleteAsync($"/api/auto-parts/by-id/{Guid.NewGuid()}");
+        var body = await response.Content.ReadAsStringAsync();
+        var error = JsonSerializer.Deserialize<ErrorResponse>(body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.NotNull(error);
+        Assert.Equal("bad_request", error!.Code);
+        Assert.Contains("Автозапчасть не найдена", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static WebApplicationFactory<Program> CreateFactory(string mode, string trustedOrigin, int readLimit, int writeLimit)

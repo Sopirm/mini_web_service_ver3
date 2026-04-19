@@ -9,4 +9,6 @@ public interface IItemRepository
     Item? GetById(Guid id);
 
     Item Create(string name, decimal price);
+
+    bool Delete(Guid id);
 }

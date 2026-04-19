@@ -22,4 +22,7 @@ public sealed class InMemoryItemRepository : IItemRepository
         _items[id] = item;
         return item;
     }
+
+    public bool Delete(Guid id)
+        => _items.TryRemove(id, out _);
 }
